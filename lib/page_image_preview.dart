@@ -18,7 +18,7 @@ class _PageImagePreviewState extends State<PageImagePreview> {
     // TODO: implement initState
     super.initState();
 
-    //SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   }
 
   @override

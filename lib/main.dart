@@ -1,18 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:camera/camera.dart';
 import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_native_image/flutter_native_image.dart';
-import 'package:image/image.dart' as imgServices;
-import 'package:image_cropper/image_cropper.dart';
-import 'dart:ui' as ui;
-
+import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
-import 'package:redi_camera/page_image_preview.dart';
 
 //https://pub.dev/packages/crop_image/example
 Future<void> main() async {
@@ -40,17 +37,19 @@ class CameraPage extends StatefulWidget {
 class _CameraPageState extends State<CameraPage> {
   late CameraController _controller;
   late Future<void> _initializeControllerFuture;
-  GlobalKey _cameraKey = new GlobalKey();
+  final GlobalKey _cameraKey = GlobalKey();
   GlobalKey _imageKey = new GlobalKey();
   GlobalKey _cropImageKey = new GlobalKey();
   String pathImage = "";
+  Widget imageRepaint = Container();
   bool isCapture = false;
 
   @override
   void initState() {
     super.initState();
 
-    SystemChrome.setPreferredOrientations([DeviceOrientation.landscapeRight]);
+    SystemChrome.setPreferredOrientations(
+        [DeviceOrientation.landscapeRight, DeviceOrientation.landscapeLeft]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: []);
 
     _controller = CameraController(widget.camera, ResolutionPreset.high);
@@ -58,50 +57,22 @@ class _CameraPageState extends State<CameraPage> {
     _initializeControllerFuture = _controller.initialize();
   }
 
-  Widget viewImageCapture({required bool isWidget, String path = ""}) {
-    if (isWidget && path != "") {
-      return RepaintBoundary(
-        child: SizedBox(
-          child: Image.file(File(path)),
-        ),
-      );
-    }
-
-    return FutureBuilder(
-      future: _initializeControllerFuture,
-      builder: ((context, snapshot) {
-        return CameraPreview(_controller);
-      }),
-    );
-  }
-
-  Future<String> _resizePhoto(path) async {
+  Future<String> _cutPhoto(path) async {
     try {
-      ImageProperties properties =
-          await FlutterNativeImage.getImageProperties(path);
+      RenderRepaintBoundary boundary =
+          _imageKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      ui.Image image = await boundary.toImage();
+      img.Image imageConvert = image as img.Image;
+      imageConvert = img.copyCrop(imageConvert, 1, 1, 1, 1);
+      Uint8List pngBytes = imageConvert.getBytes();
+      //String bs64 = base64Encode(pngBytes);
 
-      int width = properties.width ?? 0;
-      int height = properties.height ?? 0;
-      var offset = (properties.height! - properties.width!) / 2;
+      Directory tempDir = await getTemporaryDirectory();
 
-      File croppedFile = await FlutterNativeImage.cropImage(
-          path,
-          0,
-          ((12 * height) / 100).round(),
-          width,
-          height - ((12 * height) / 100).round());
+      File imageFile = await File('${tempDir.path}/image.png').create();
+      imageFile.writeAsBytes(pngBytes);
 
-      return croppedFile.path;
-    } catch (e) {
-      print(e);
-    }
-
-    return "";
-  }
-
-  Future<String> _capturePng() async {
-    try {
-      print('inside');
+      return imageFile.path;
       // RenderRepaintBoundary boundary = _globalKey.currentContext!
       //     .findRenderObject() as RenderRepaintBoundary;
       // ui.Image image = await boundary.toImage();
@@ -114,13 +85,56 @@ class _CameraPageState extends State<CameraPage> {
       // final tempDir = await getTemporaryDirectory();
       // File imageFile = await File('${tempDir.path}/image.png').create();
       // imageFile.writeAsBytes(pngBytes);
-      var imageFile = await _controller.takePicture();
-      String path = imageFile.path;
-      return path;
+      // ImageProperties properties =
+      //     await FlutterNativeImage.getImageProperties(path);
+
+      // int width = properties.width ?? 0;
+      // int height = properties.height ?? 0;
+      // var offset = (properties.height! - properties.width!) / 2;
+
+      // File croppedFile = await FlutterNativeImage.cropImage(
+      //     path,
+      //     0,
+      //     ((12 * height) / 100).round(),
+      //     width,
+      //     height - ((12 * height) / 100).round());
+
+      // return croppedFile.path;
     } catch (e) {
       print(e);
+      throw Exception(e);
     }
-    return "";
+  }
+
+  Future<void> _captureImgCamereAndUseInWidget() async {
+    try {
+      //print('inside');
+      var image = await _controller.takePicture();
+      Size currentSize = _cameraKey.currentContext!.size!;
+      imageRepaint = RepaintBoundary(
+        child: SizedBox(
+          width: currentSize.width,
+          height: currentSize.height,
+          child: Image.file(File(image.path)),
+        ),
+      );
+
+      isCapture = true;
+      // RenderRepaintBoundary boundary = _globalKey.currentContext!
+      //     .findRenderObject() as RenderRepaintBoundary;
+      // ui.Image image = await boundary.toImage();
+      // ByteData byteData =
+      //     await image.toByteData(format: ui.ImageByteFormat.png) as ByteData;
+      // var pngBytes = byteData.buffer.asUint8List();
+      // var bs64 = base64Encode(pngBytes);
+      // print(pngBytes);
+      // print(bs64);
+      // final tempDir = await getTemporaryDirectory();
+      // File imageFile = await File('${tempDir.path}/image.png').create();
+      // imageFile.writeAsBytes(pngBytes);
+    } catch (e) {
+      throw Exception(e);
+    }
   }
 
   @override
@@ -134,7 +148,7 @@ class _CameraPageState extends State<CameraPage> {
     //if (!_controller.value.isInitialized) return new Container();
     double width = MediaQuery.of(context).size.width;
     double height = MediaQuery.of(context).size.height;
-    var size = MediaQuery.of(context).size;
+    Size size = MediaQuery.of(context).size;
     return Scaffold(
         body: SizedBox(
             child: Row(
@@ -147,16 +161,18 @@ class _CameraPageState extends State<CameraPage> {
             SizedBox(
               child: IconButton(
                 onPressed: () async {
-                  pathImage = await _capturePng();
-                  String valueCutImage = await _resizePhoto(pathImage);
+                  _captureImgCamereAndUseInWidget();
+                  String valueCutImage = await _cutPhoto(pathImage);
                   // ignore: use_build_context_synchronously
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) =>
-                              PageImagePreview(imagePath: valueCutImage)));
+                  // Navigator.push(
+                  //     context,
+                  //     MaterialPageRoute(
+                  //         builder: (context) =>
+                  //             PageImagePreview(imagePath: valueCutImage)));
+
+                  // initState();
                 },
-                iconSize: 65,
+                iconSize: (width * 0.1),
                 icon: const Icon(Icons.camera),
               ),
             ),
@@ -164,26 +180,32 @@ class _CameraPageState extends State<CameraPage> {
             //     onPressed: () => {}, icon: const Icon(Icons.flash_on))
           ],
         ),
-        Container(
-            child: Stack(
+        Stack(
           alignment: Alignment.center,
           children: [
+            isCapture ? imageRepaint : Container(),
             SizedBox(
               key: _imageKey,
               child: FutureBuilder(
                 future: _initializeControllerFuture,
                 builder: ((context, snapshot) {
-                  return CameraPreview(
-                    _controller,
-                  );
+                  if (snapshot.connectionState == ConnectionState.done) {
+                    return CameraPreview(
+                      _controller,
+                    );
+                  } else {
+                    return const Center(
+                      child: CircularProgressIndicator(),
+                    );
+                  }
                 }),
               ),
             ),
             DottedBorder(
-              dashPattern: [10, 10],
+              dashPattern: const [10, 10],
               strokeWidth: 2,
               color: Colors.white54,
-              child: Container(
+              child: SizedBox(
                   key: _cropImageKey,
                   height: (80 * height) / 100,
                   width: (80 * width) / 100),
@@ -201,7 +223,7 @@ class _CameraPageState extends State<CameraPage> {
                   )),
             ),
           ],
-        ))
+        )
       ],
     ) // This trailing comma makes auto-formatting nicer for build methods.
             ));
